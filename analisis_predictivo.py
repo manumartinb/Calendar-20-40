@@ -41,21 +41,34 @@ class RobustAnalyzer:
         # Cargar CSV
         self.df = pd.read_csv(self.csv_path)
 
-        # Extraer DTE1 y DTE2 de la columna 'DTE1/DTE2' y aplicar filtro
+        # Extraer DTE1 y DTE2 de la columna 'DTE1/DTE2' y aplicar filtros
         if 'DTE1/DTE2' in self.df.columns:
             dte_split = self.df['DTE1/DTE2'].str.split('/', expand=True)
             self.df['DTE1'] = pd.to_numeric(dte_split[0])
             self.df['DTE2'] = pd.to_numeric(dte_split[1])
             self.df['DTE_diff'] = self.df['DTE2'] - self.df['DTE1']
 
-            # FILTRO: Solo spreads con diferencia >= 10 días
+            # FILTROS: DTE_diff > 10 AND FF_ATM < 0.3
             N_original = len(self.df)
-            self.df = self.df[self.df['DTE_diff'] >= 10].copy()
+
+            # Aplicar filtro DTE
+            filter_dte = self.df['DTE_diff'] > 10
+            N_after_dte = filter_dte.sum()
+
+            # Aplicar filtro FF_ATM
+            filter_ff = self.df['FF_ATM'] < 0.3
+            N_after_ff = filter_ff.sum()
+
+            # Filtros combinados
+            combined_filter = filter_dte & filter_ff
+            self.df = self.df[combined_filter].copy()
             N_filtered = len(self.df)
 
-            self.report.append(f"**FILTRO APLICADO: DTE2 - DTE1 >= 10 días**\n")
+            self.report.append(f"**FILTROS APLICADOS:**\n")
+            self.report.append(f"1. DTE2 - DTE1 > 10 días: {N_after_dte:,} registros ({100*N_after_dte/N_original:.1f}%)\n")
+            self.report.append(f"2. FF_ATM < 0.3: {N_after_ff:,} registros ({100*N_after_ff/N_original:.1f}%)\n")
+            self.report.append(f"3. **COMBINADOS (1 AND 2): {N_filtered:,} registros ({100*N_filtered/N_original:.1f}%)**\n")
             self.report.append(f"- Registros originales: {N_original:,}\n")
-            self.report.append(f"- Registros después del filtro: {N_filtered:,} ({100*N_filtered/N_original:.1f}%)\n")
             self.report.append(f"- Registros eliminados: {N_original - N_filtered:,}\n\n")
 
         N = len(self.df)
@@ -689,7 +702,7 @@ class RobustAnalyzer:
             axes[idx].grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plot1_path = f'scatter_top_features_{target}_DTE10.png'
+        plot1_path = f'scatter_top_features_{target}_DTE10_FF03.png'
         plt.savefig(plot1_path, dpi=100, bbox_inches='tight')
         plt.close()
 
@@ -722,7 +735,7 @@ class RobustAnalyzer:
                 axes[idx].get_figure().suptitle('')
 
             plt.tight_layout()
-            plot2_path = f'boxplot_quintiles_{target}_DTE10.png'
+            plot2_path = f'boxplot_quintiles_{target}_DTE10_FF03.png'
             plt.savefig(plot2_path, dpi=100, bbox_inches='tight')
             plt.close()
 
@@ -823,7 +836,7 @@ class RobustAnalyzer:
         self.generate_executive_summary()
 
         # Guardar reporte
-        report_path = 'INFORME_ANALISIS_PREDICTIVO_DTE10.md'
+        report_path = 'INFORME_ANALISIS_PREDICTIVO_DTE10_FF03.md'
         with open(report_path, 'w', encoding='utf-8') as f:
             f.writelines(self.report)
 
