@@ -48,7 +48,7 @@ class RobustAnalyzer:
             self.df['DTE2'] = pd.to_numeric(dte_split[1])
             self.df['DTE_diff'] = self.df['DTE2'] - self.df['DTE1']
 
-            # FILTROS: DTE_diff > 10 AND FF_ATM < 0.3
+            # FILTROS: DTE_diff > 10 AND FF_ATM > 0.7
             N_original = len(self.df)
 
             # Aplicar filtro DTE
@@ -56,7 +56,7 @@ class RobustAnalyzer:
             N_after_dte = filter_dte.sum()
 
             # Aplicar filtro FF_ATM
-            filter_ff = self.df['FF_ATM'] < 0.3
+            filter_ff = self.df['FF_ATM'] > 0.7
             N_after_ff = filter_ff.sum()
 
             # Filtros combinados
@@ -66,7 +66,7 @@ class RobustAnalyzer:
 
             self.report.append(f"**FILTROS APLICADOS:**\n")
             self.report.append(f"1. DTE2 - DTE1 > 10 días: {N_after_dte:,} registros ({100*N_after_dte/N_original:.1f}%)\n")
-            self.report.append(f"2. FF_ATM < 0.3: {N_after_ff:,} registros ({100*N_after_ff/N_original:.1f}%)\n")
+            self.report.append(f"2. FF_ATM > 0.7: {N_after_ff:,} registros ({100*N_after_ff/N_original:.1f}%)\n")
             self.report.append(f"3. **COMBINADOS (1 AND 2): {N_filtered:,} registros ({100*N_filtered/N_original:.1f}%)**\n")
             self.report.append(f"- Registros originales: {N_original:,}\n")
             self.report.append(f"- Registros eliminados: {N_original - N_filtered:,}\n\n")
@@ -267,7 +267,15 @@ class RobustAnalyzer:
         valid_mask = self.df[feature].notna() & np.isfinite(self.df[feature]) & \
                      self.df[target].notna() & np.isfinite(self.df[target])
 
-        if valid_mask.sum() < self.min_bin_size * n_quantiles:
+        # Ajustar n_quantiles si la muestra es pequeña
+        total_valid = valid_mask.sum()
+        if total_valid < 150:  # Si hay menos de 150 registros, usar tertiles
+            n_quantiles = 3
+            min_required = self.min_bin_size * n_quantiles
+        else:
+            min_required = self.min_bin_size * n_quantiles
+
+        if total_valid < min_required:
             return None
 
         df_valid = self.df.loc[valid_mask, [feature, target]].copy()
@@ -702,7 +710,7 @@ class RobustAnalyzer:
             axes[idx].grid(True, alpha=0.3)
 
         plt.tight_layout()
-        plot1_path = f'scatter_top_features_{target}_DTE10_FF03.png'
+        plot1_path = f'scatter_top_features_{target}_DTE10_FF07.png'
         plt.savefig(plot1_path, dpi=100, bbox_inches='tight')
         plt.close()
 
@@ -725,21 +733,26 @@ class RobustAnalyzer:
                              self.df[target].notna() & np.isfinite(self.df[target])
 
                 df_valid = self.df.loc[valid_mask, [feat, target]].copy()
-                df_valid['quintile'] = pd.qcut(df_valid[feat], q=5, labels=['Q1', 'Q2', 'Q3', 'Q4', 'Q5'],
+
+                # Usar tertiles para muestras pequeñas
+                n_q = 3 if len(df_valid) < 150 else 5
+                labels = ['T1', 'T2', 'T3'] if n_q == 3 else ['Q1', 'Q2', 'Q3', 'Q4', 'Q5']
+
+                df_valid['quantile'] = pd.qcut(df_valid[feat], q=n_q, labels=labels,
                                               duplicates='drop')
 
-                df_valid.boxplot(column=target, by='quintile', ax=axes[idx])
+                df_valid.boxplot(column=target, by='quantile', ax=axes[idx])
                 axes[idx].set_title(f'{feat}\n(Cliff\'s δ={rule["cliffs_delta"]:.3f})', fontsize=10)
-                axes[idx].set_xlabel('Quintil', fontsize=8)
+                axes[idx].set_xlabel('Cuantil', fontsize=8)
                 axes[idx].set_ylabel(target, fontsize=8)
                 axes[idx].get_figure().suptitle('')
 
             plt.tight_layout()
-            plot2_path = f'boxplot_quintiles_{target}_DTE10_FF03.png'
+            plot2_path = f'boxplot_quantiles_{target}_DTE10_FF07.png'
             plt.savefig(plot2_path, dpi=100, bbox_inches='tight')
             plt.close()
 
-            self.report.append(f"![Boxplots por Quintiles]({plot2_path})\n\n")
+            self.report.append(f"![Boxplots por Cuantiles]({plot2_path})\n\n")
 
     def generate_executive_summary(self):
         """Genera resumen ejecutivo con hallazgos accionables"""
@@ -836,7 +849,7 @@ class RobustAnalyzer:
         self.generate_executive_summary()
 
         # Guardar reporte
-        report_path = 'INFORME_ANALISIS_PREDICTIVO_DTE10_FF03.md'
+        report_path = 'INFORME_ANALISIS_PREDICTIVO_DTE10_FF07.md'
         with open(report_path, 'w', encoding='utf-8') as f:
             f.writelines(self.report)
 
@@ -850,8 +863,8 @@ if __name__ == "__main__":
     CSV_PATH = "combined_CALENDAR_mediana_w_stats_w_vix.csv"
     TARGETS = ["PnL_fwd_pts_50_mediana", "PnL_fwd_pts_90_mediana"]
 
-    # Ejecutar análisis
-    analyzer = RobustAnalyzer(CSV_PATH, TARGETS, min_bin_size=30)
+    # Ejecutar análisis (min_bin_size reducido para muestra pequeña)
+    analyzer = RobustAnalyzer(CSV_PATH, TARGETS, min_bin_size=20)
     success = analyzer.run_full_analysis()
 
     if success:
